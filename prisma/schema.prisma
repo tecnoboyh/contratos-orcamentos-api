@@ -184,6 +184,7 @@ model Contract {
   signedAt       DateTime?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
+  archivedAt     DateTime?
 
   company           Company            @relation(fields: [companyId], references: [id])
   template          ContractTemplate?  @relation(fields: [templateId], references: [id])

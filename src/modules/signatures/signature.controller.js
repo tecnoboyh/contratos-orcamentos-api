@@ -42,8 +42,11 @@ async function view(req, res) {
         id: signatureRequest.contract.id,
         title: signatureRequest.contract.title,
         type: signatureRequest.contract.type,
+        status: signatureRequest.contract.status,
         relatedParty: signatureRequest.contract.relatedParty,
-        content: signatureRequest.contract.content
+        content: signatureRequest.contract.content,
+        signedAt: signatureRequest.contract.signedAt,
+        archivedAt: signatureRequest.contract.archivedAt
       }
     });
   } catch (error) {
@@ -116,9 +119,11 @@ async function sign(req, res) {
     });
 
     let contractStatus = 'WAITING_SIGNATURE';
+    let contractArchived = false;
 
     if (pendingSignatures === 0) {
       contractStatus = 'SIGNED';
+      contractArchived = true;
 
       await prisma.contract.update({
         where: {
@@ -126,7 +131,8 @@ async function sign(req, res) {
         },
         data: {
           status: 'SIGNED',
-          signedAt
+          signedAt,
+          archivedAt: signedAt
         }
       });
     }
@@ -148,9 +154,10 @@ async function sign(req, res) {
     return res.json({
       message:
         contractStatus === 'SIGNED'
-          ? 'Contrato assinado por todos os assinantes.'
+          ? 'Contrato assinado por todos os assinantes e arquivado com sucesso.'
           : 'Assinatura registrada com sucesso. Ainda existem assinaturas pendentes.',
-      contractStatus
+      contractStatus,
+      contractArchived
     });
   } catch (error) {
     return res.status(500).json({

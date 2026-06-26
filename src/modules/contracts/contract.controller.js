@@ -6,6 +6,10 @@ const {
 } = require('../services/whatsapp.service');
 
 function calculateContractStatus(contract) {
+  if (contract.archivedAt || contract.status === 'SIGNED') {
+    return 'SIGNED';
+  }
+
   if (contract.status === 'DRAFT' || contract.status === 'WAITING_SIGNATURE') {
     return contract.status;
   }
@@ -456,7 +460,7 @@ async function sendSignature(req, res) {
         }
       });
 
-      const signatureUrl = `${process.env.APP_URL}/api/signatures/${signatureRequest.id}/view`;
+      const signatureUrl = `${process.env.FRONTEND_APP_URL}/signatures/${signatureRequest.id}/view`;
 
       let emailResult = null;
       let whatsappResult = null;
