@@ -9,6 +9,7 @@ const obraRoutes = require('./modules/obras/obra.routes');
 const signatureRoutes = require('./modules/signatures/signature.routes');
 const purchaseOrderRoutes = require('./modules/purchaseOrders/purchaseOrder.routes');
 const dashboardRoutes = require('./modules/dashboard/dashboard.routes');
+const reportRoutes = require('./modules/reports/report.routes');
 
 const routes = Router();
 
@@ -30,5 +31,6 @@ routes.use('/contracts', contractRoutes);
 routes.use('/obras', obraRoutes);
 routes.use('/purchase-orders', purchaseOrderRoutes);
 routes.use('/dashboard', dashboardRoutes);
+routes.use('/reports', reportRoutes);
 
 module.exports = routes;
