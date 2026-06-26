@@ -15,4 +15,6 @@ routes.patch('/:id/steps/:stepId/complete', obraController.completeStep);
 routes.post('/:id/custos', obraController.createCost);
 routes.post('/:id/vistorias', obraController.createVistoria);
 
+routes.post('/:id/purchase-orders', obraController.createPurchaseOrder);
+
 module.exports = routes;

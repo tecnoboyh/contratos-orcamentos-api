@@ -641,6 +641,92 @@ async function createVistoria(req, res) {
   }
 }
 
+async function createPurchaseOrder(req, res) {
+  try {
+    const { companyId } = req.user;
+    const { id } = req.params;
+
+    const {
+      number,
+      payerCnpj,
+      supplier,
+      description,
+      totalValue,
+      status,
+      issuedAt
+    } = req.body;
+
+    if (!number || !payerCnpj || !totalValue) {
+      return res.status(400).json({
+        message: 'Número, CNPJ pagador e valor total são obrigatórios.'
+      });
+    }
+
+    const obra = await prisma.obra.findFirst({
+      where: {
+        id,
+        companyId
+      }
+    });
+
+    if (!obra) {
+      return res.status(404).json({
+        message: 'Obra não encontrada.'
+      });
+    }
+
+    const numberAlreadyExists = await prisma.purchaseOrder.findFirst({
+      where: {
+        companyId,
+        number
+      }
+    });
+
+    if (numberAlreadyExists) {
+      return res.status(400).json({
+        message: 'Já existe uma ordem de compra com este número.'
+      });
+    }
+
+    const purchaseOrder = await prisma.purchaseOrder.create({
+      data: {
+        companyId,
+        obraId: obra.id,
+        contractId: obra.contractId || null,
+        number,
+        payerCnpj,
+        supplier: supplier || null,
+        description: description || null,
+        totalValue,
+        status: status || 'DRAFT',
+        issuedAt: issuedAt ? new Date(issuedAt) : null
+      }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        companyId,
+        userId: req.user.id,
+        action: 'CREATE',
+        entity: 'PurchaseOrder',
+        entityId: purchaseOrder.id,
+        metadata: {
+          number: purchaseOrder.number,
+          obraId: obra.id,
+          totalValue: purchaseOrder.totalValue
+        }
+      }
+    });
+
+    return res.status(201).json(purchaseOrder);
+  } catch (error) {
+    return res.status(500).json({
+      message: 'Erro ao criar ordem de compra.',
+      error: error.message
+    });
+  }
+}
+
 module.exports = {
   list,
   show,
@@ -650,5 +736,6 @@ module.exports = {
   createStep,
   completeStep,
   createCost,
-  createVistoria
+  createVistoria,
+  createPurchaseOrder
 };
