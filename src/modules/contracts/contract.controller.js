@@ -10,6 +10,14 @@ function calculateContractStatus(contract) {
     return 'SIGNED';
   }
 
+  if (contract.status === 'CLOSED') {
+    return 'CLOSED';
+  }
+
+  if (contract.status === 'CANCELED') {
+    return 'CANCELED';
+  }
+
   if (contract.status === 'DRAFT' || contract.status === 'WAITING_SIGNATURE') {
     return contract.status;
   }
@@ -378,6 +386,230 @@ async function remove(req, res) {
   }
 }
 
+async function renew(req, res) {
+  try {
+    const { companyId } = req.user;
+    const { id } = req.params;
+
+    const {
+      startDate,
+      endDate,
+      totalValue,
+      monthlyValue,
+      note
+    } = req.body;
+
+    if (!endDate) {
+      return res.status(400).json({
+        message: 'Nova data de encerramento é obrigatória.'
+      });
+    }
+
+    const contract = await prisma.contract.findFirst({
+      where: {
+        id,
+        companyId
+      }
+    });
+
+    if (!contract) {
+      return res.status(404).json({
+        message: 'Contrato não encontrado.'
+      });
+    }
+
+    if (contract.status === 'CANCELED') {
+      return res.status(400).json({
+        message: 'Contrato cancelado não pode ser renovado.'
+      });
+    }
+
+    const updatedContract = await prisma.contract.update({
+      where: {
+        id: contract.id
+      },
+      data: {
+        startDate: startDate ? new Date(startDate) : contract.startDate,
+        endDate: new Date(endDate),
+        totalValue: totalValue !== undefined ? totalValue : contract.totalValue,
+        monthlyValue: monthlyValue !== undefined ? monthlyValue : contract.monthlyValue,
+        status: 'ACTIVE',
+        filledFields: {
+          ...(contract.filledFields || {}),
+          lastRenewal: {
+            renewedAt: new Date(),
+            note: note || null
+          }
+        }
+      }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        companyId,
+        userId: req.user.id,
+        action: 'RENEW',
+        entity: 'Contract',
+        entityId: contract.id,
+        metadata: {
+          endDate,
+          note
+        }
+      }
+    });
+
+    return res.json(updatedContract);
+  } catch (error) {
+    return res.status(500).json({
+      message: 'Erro ao renovar contrato.',
+      error: error.message
+    });
+  }
+}
+
+async function close(req, res) {
+  try {
+    const { companyId } = req.user;
+    const { id } = req.params;
+
+    const {
+      reason,
+      closedAt
+    } = req.body;
+
+    const contract = await prisma.contract.findFirst({
+      where: {
+        id,
+        companyId
+      }
+    });
+
+    if (!contract) {
+      return res.status(404).json({
+        message: 'Contrato não encontrado.'
+      });
+    }
+
+    if (contract.status === 'CLOSED') {
+      return res.status(400).json({
+        message: 'Este contrato já está encerrado.'
+      });
+    }
+
+    const endDate = closedAt ? new Date(closedAt) : new Date();
+
+    const updatedContract = await prisma.contract.update({
+      where: {
+        id: contract.id
+      },
+      data: {
+        status: 'CLOSED',
+        endDate,
+        filledFields: {
+          ...(contract.filledFields || {}),
+          closing: {
+            closedAt: endDate,
+            reason: reason || null
+          }
+        }
+      }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        companyId,
+        userId: req.user.id,
+        action: 'CLOSE',
+        entity: 'Contract',
+        entityId: contract.id,
+        metadata: {
+          reason: reason || null,
+          closedAt: endDate
+        }
+      }
+    });
+
+    return res.json(updatedContract);
+  } catch (error) {
+    return res.status(500).json({
+      message: 'Erro ao encerrar contrato.',
+      error: error.message
+    });
+  }
+}
+
+async function createAddendum(req, res) {
+  try {
+    const { companyId } = req.user;
+    const { id } = req.params;
+
+    const {
+      title,
+      description,
+      totalValue,
+      monthlyValue,
+      startDate,
+      endDate
+    } = req.body;
+
+    const contract = await prisma.contract.findFirst({
+      where: {
+        id,
+        companyId
+      }
+    });
+
+    if (!contract) {
+      return res.status(404).json({
+        message: 'Contrato original não encontrado.'
+      });
+    }
+
+    const addendum = await prisma.contract.create({
+      data: {
+        companyId,
+        templateId: contract.templateId || null,
+        title: title || `Aditivo - ${contract.title}`,
+        type: contract.type,
+        status: 'DRAFT',
+        relatedParty: contract.relatedParty,
+        documentNumber: contract.documentNumber,
+        totalValue: totalValue !== undefined ? totalValue : contract.totalValue,
+        monthlyValue: monthlyValue !== undefined ? monthlyValue : contract.monthlyValue,
+        startDate: startDate ? new Date(startDate) : contract.startDate,
+        endDate: endDate ? new Date(endDate) : contract.endDate,
+        content: description || `Aditivo referente ao contrato: ${contract.title}`,
+        filledFields: {
+          kind: 'ADDENDUM',
+          originalContractId: contract.id,
+          originalContractTitle: contract.title
+        }
+      }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        companyId,
+        userId: req.user.id,
+        action: 'CREATE_ADDENDUM',
+        entity: 'Contract',
+        entityId: addendum.id,
+        metadata: {
+          originalContractId: contract.id,
+          originalContractTitle: contract.title
+        }
+      }
+    });
+
+    return res.status(201).json(addendum);
+  } catch (error) {
+    return res.status(500).json({
+      message: 'Erro ao gerar aditivo.',
+      error: error.message
+    });
+  }
+}
+
 async function sendSignature(req, res) {
   try {
     const { companyId } = req.user;
@@ -578,5 +810,8 @@ module.exports = {
   create,
   update,
   remove,
-  sendSignature
+  sendSignature,
+  renew,
+  close,
+  createAddendum
 };
