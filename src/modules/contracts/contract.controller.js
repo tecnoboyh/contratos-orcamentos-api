@@ -1,4 +1,5 @@
 const prisma = require('../../config/prisma');
+const { sendContractSignatureEmail } = require('../services/email.service');
 
 function calculateContractStatus(contract) {
   if (contract.status === 'DRAFT' || contract.status === 'WAITING_SIGNATURE') {
@@ -369,10 +370,170 @@ async function remove(req, res) {
   }
 }
 
+async function sendSignature(req, res) {
+  try {
+    const { companyId } = req.user;
+    const { id } = req.params;
+
+    const { channel, signers } = req.body;
+
+    if (!channel) {
+      return res.status(400).json({
+        message: 'Canal de envio é obrigatório.'
+      });
+    }
+
+    if (!Array.isArray(signers) || signers.length === 0) {
+      return res.status(400).json({
+        message: 'Informe pelo menos um assinante.'
+      });
+    }
+
+    const invalidSigner = signers.find((signer) => {
+      if (!signer.name) return true;
+
+      if ((channel === 'EMAIL' || channel === 'BOTH') && !signer.email) {
+        return true;
+      }
+
+      return false;
+    });
+
+    if (invalidSigner) {
+      return res.status(400).json({
+        message: 'Todos os assinantes precisam ter nome e e-mail quando o envio for por e-mail.'
+      });
+    }
+
+    const contract = await prisma.contract.findFirst({
+      where: {
+        id,
+        companyId
+      }
+    });
+
+    if (!contract) {
+      return res.status(404).json({
+        message: 'Contrato não encontrado.'
+      });
+    }
+
+    if (contract.status === 'SIGNED') {
+      return res.status(400).json({
+        message: 'Este contrato já foi assinado.'
+      });
+    }
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    const createdRequests = [];
+
+    for (const signer of signers) {
+      const signatureRequest = await prisma.signatureRequest.create({
+        data: {
+          contractId: contract.id,
+          channel,
+          status: 'PENDING',
+          signerName: signer.name,
+          signerEmail: signer.email || null,
+          signerPhone: signer.phone || null,
+          expiresAt
+        }
+      });
+
+      const signatureUrl = `${process.env.APP_URL}/api/signatures/${signatureRequest.id}/view`;
+
+      let emailResult = null;
+      let finalStatus = 'PENDING';
+      let sentAt = null;
+
+      if (channel === 'EMAIL' || channel === 'BOTH') {
+        emailResult = await sendContractSignatureEmail({
+          to: signer.email,
+          signerName: signer.name,
+          contractTitle: contract.title,
+          relatedParty: contract.relatedParty,
+          signatureUrl
+        });
+
+        finalStatus = 'SENT';
+        sentAt = new Date();
+
+        await prisma.signatureRequest.update({
+          where: {
+            id: signatureRequest.id
+          },
+          data: {
+            status: finalStatus,
+            sentAt,
+            attempts: {
+              increment: 1
+            }
+          }
+        });
+      }
+
+      createdRequests.push({
+        id: signatureRequest.id,
+        channel,
+        signerName: signer.name,
+        signerEmail: signer.email || null,
+        signerPhone: signer.phone || null,
+        status: finalStatus,
+        sentAt,
+        expiresAt,
+        signatureUrl,
+        email: emailResult
+      });
+    }
+
+    await prisma.contract.update({
+      where: {
+        id: contract.id
+      },
+      data: {
+        status: 'WAITING_SIGNATURE'
+      }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        companyId,
+        userId: req.user.id,
+        action: 'SEND_SIGNATURE',
+        entity: 'Contract',
+        entityId: contract.id,
+        metadata: {
+          channel,
+          totalSigners: signers.length,
+          signers: signers.map((signer) => ({
+            name: signer.name,
+            email: signer.email || null,
+            phone: signer.phone || null
+          }))
+        }
+      }
+    });
+
+    return res.json({
+      message: 'Contrato enviado para assinatura.',
+      totalSigners: createdRequests.length,
+      signatureRequests: createdRequests
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: 'Erro ao enviar contrato para assinatura.',
+      error: error.message
+    });
+  }
+}
+
 module.exports = {
   list,
   show,
   create,
   update,
-  remove
+  remove,
+  sendSignature
 };

@@ -6,6 +6,7 @@ const authRoutes = require('./modules/auth/auth.routes');
 const companyRoutes = require('./modules/companies/company.routes');
 const contractRoutes = require('./modules/contracts/contract.routes');
 const obraRoutes = require('./modules/obras/obra.routes');
+const signatureRoutes = require('./modules/signatures/signature.routes');
 
 const routes = Router();
 
@@ -17,6 +18,7 @@ routes.get('/health', (req, res) => {
 });
 
 routes.use('/auth', authRoutes);
+routes.use('/signatures', signatureRoutes);
 
 routes.use(authMiddleware);
 
