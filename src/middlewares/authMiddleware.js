@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
+const prisma = require('../config/prisma');
 
-function authMiddleware(req, res, next) {
+async function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
 
   if (!authHeader) {
@@ -20,9 +21,24 @@ function authMiddleware(req, res, next) {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
+    let companyId = req.headers['x-company-id'] || decoded.companyId;
+
+    const member = await prisma.companyMember.findFirst({
+      where: {
+        userId: decoded.id,
+        companyId
+      }
+    });
+
+    if (!member) {
+      return res.status(403).json({
+        message: 'Usuário sem acesso a esta empresa.'
+      });
+    }
+
     req.user = {
       id: decoded.id,
-      companyId: decoded.companyId,
+      companyId,
       role: decoded.role
     };
 

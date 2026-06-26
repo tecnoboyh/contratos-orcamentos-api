@@ -60,6 +60,14 @@ async function register(req, res) {
 
     const user = company.users[0];
 
+    await prisma.companyMember.create({
+      data: {
+        companyId: company.id,
+        userId: user.id,
+        role: 'OWNER'
+      }
+    });
+
     const token = generateToken(user);
 
     return res.status(201).json({
