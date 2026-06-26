@@ -1,5 +1,9 @@
 const prisma = require('../../config/prisma');
 const { sendContractSignatureEmail } = require('../services/email.service');
+const {
+  sendWhatsappText,
+  buildSignatureWhatsappMessage
+} = require('../services/whatsapp.service');
 
 function calculateContractStatus(contract) {
   if (contract.status === 'DRAFT' || contract.status === 'WAITING_SIGNATURE') {
@@ -383,6 +387,12 @@ async function sendSignature(req, res) {
       });
     }
 
+    if (!['EMAIL', 'WHATSAPP', 'BOTH'].includes(channel)) {
+      return res.status(400).json({
+        message: 'Canal de envio inválido.'
+      });
+    }
+
     if (!Array.isArray(signers) || signers.length === 0) {
       return res.status(400).json({
         message: 'Informe pelo menos um assinante.'
@@ -396,12 +406,16 @@ async function sendSignature(req, res) {
         return true;
       }
 
+      if ((channel === 'WHATSAPP' || channel === 'BOTH') && !signer.phone) {
+        return true;
+      }
+
       return false;
     });
 
     if (invalidSigner) {
       return res.status(400).json({
-        message: 'Todos os assinantes precisam ter nome e e-mail quando o envio for por e-mail.'
+        message: 'Todos os assinantes precisam ter nome e os dados exigidos pelo canal escolhido.'
       });
     }
 
@@ -445,8 +459,10 @@ async function sendSignature(req, res) {
       const signatureUrl = `${process.env.APP_URL}/api/signatures/${signatureRequest.id}/view`;
 
       let emailResult = null;
+      let whatsappResult = null;
       let finalStatus = 'PENDING';
       let sentAt = null;
+      let attempts = 0;
 
       if (channel === 'EMAIL' || channel === 'BOTH') {
         emailResult = await sendContractSignatureEmail({
@@ -457,6 +473,28 @@ async function sendSignature(req, res) {
           signatureUrl
         });
 
+        attempts += 1;
+      }
+
+      if (channel === 'WHATSAPP' || channel === 'BOTH') {
+        const message = buildSignatureWhatsappMessage({
+          signerName: signer.name,
+          contractTitle: contract.title,
+          relatedParty: contract.relatedParty,
+          signatureUrl
+        });
+
+        whatsappResult = await sendWhatsappText({
+          phone: signer.phone,
+          message,
+          messageId: signatureRequest.id,
+          delayMessage: 0
+        });
+
+        attempts += 1;
+      }
+
+      if (attempts > 0) {
         finalStatus = 'SENT';
         sentAt = new Date();
 
@@ -468,7 +506,7 @@ async function sendSignature(req, res) {
             status: finalStatus,
             sentAt,
             attempts: {
-              increment: 1
+              increment: attempts
             }
           }
         });
@@ -484,7 +522,8 @@ async function sendSignature(req, res) {
         sentAt,
         expiresAt,
         signatureUrl,
-        email: emailResult
+        email: emailResult,
+        whatsapp: whatsappResult
       });
     }
 
